@@ -1,55 +1,28 @@
+// student.c
 #include "common.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
 
-/* Globals */
+
 CollegeRow *college_data = NULL;
 int college_count = 0;
+
+/* keep the same symbol so GUI and other code don't need changes */
 StudentHeap student_heap;
 char current_user_aadhaar[MAX_STR] = "";
 
-/* ---------- HEAP (static array min-heap on jee_rank) ---------- */
 
-static void swap_items(HeapItem *a, HeapItem *b) {
-    HeapItem tmp = *a;
-    *a = *b;
-    *b = tmp;
-}
-
-/* heapify up from index i */
-static void heapify_up(int i) {
-    while (i > 0) {
-        int parent = (i - 1) / 2;
-        if (student_heap.items[i].student.jee_rank < student_heap.items[parent].student.jee_rank) {
-            swap_items(&student_heap.items[i], &student_heap.items[parent]);
-            i = parent;
-        } else break;
-    }
-}
-
-/* heapify down from index i */
-static void heapify_down(int i) {
-    int n = student_heap.size;
-    while (1) {
-        int l = 2 * i + 1;
-        int r = 2 * i + 2;
-        int smallest = i;
-        if (l < n && student_heap.items[l].student.jee_rank < student_heap.items[smallest].student.jee_rank) smallest = l;
-        if (r < n && student_heap.items[r].student.jee_rank < student_heap.items[smallest].student.jee_rank) smallest = r;
-        if (smallest != i) {
-            swap_items(&student_heap.items[i], &student_heap.items[smallest]);
-            i = smallest;
-        } else break;
-    }
-}
+/* ----------------------------
+   Student-list (FCFS) helpers
+   ---------------------------- */
 
 void heap_init(void) {
     student_heap.size = 0;
 }
 
-/* Return 1 on success, 0 on failure (full heap) */
+/* Append student (no heap property) */
 int heap_insert(Student s, Offer *offers, int offer_count) {
     if (student_heap.size >= MAX_HEAP_SIZE) return 0;
     HeapItem *it = &student_heap.items[student_heap.size];
@@ -57,22 +30,23 @@ int heap_insert(Student s, Offer *offers, int offer_count) {
     it->offers = offers;
     it->offer_count = offer_count;
     student_heap.size++;
-    heapify_up(student_heap.size - 1);
     return 1;
 }
 
-/* Pop min (best rank) into out; returns 1 if popped, 0 if empty */
+/* Pop the earliest-inserted student (FIFO).
+   We return the item in `out` (if non-NULL) and shift the array left.
+   Returns 1 if popped, 0 if empty.
+*/
 int heap_pop_min(HeapItem *out) {
     if (student_heap.size == 0) return 0;
     if (out) *out = student_heap.items[0];
-    /* move last to root */
-    student_heap.items[0] = student_heap.items[student_heap.size - 1];
+    /* shift left */
+    for (int i = 1; i < student_heap.size; ++i) student_heap.items[i-1] = student_heap.items[i];
     student_heap.size--;
-    heapify_down(0);
     return 1;
 }
 
-/* Find heap index by exact student name (linear search) */
+/* Find by student name (linear search) */
 int heap_find_by_name(const char *name) {
     for (int i = 0; i < student_heap.size; ++i) {
         if (strcmp(student_heap.items[i].student.name, name) == 0) return i;
@@ -80,31 +54,16 @@ int heap_find_by_name(const char *name) {
     return -1;
 }
 
-/* Return indices of heap items sorted by jee_rank (ascending).
-   out_indices must have capacity max_out. Returns number filled. */
+/* Return indices in FCFS order (insertion order): 0..n-1 (up to max_out) */
 int heap_peek_all_sorted(int *out_indices, int max_out) {
     int n = student_heap.size;
     if (n == 0) return 0;
-    /* make an array of indices and sort by corresponding rank */
-    int *tmp = malloc(n * sizeof(int));
-    for (int i = 0; i < n; ++i) tmp[i] = i;
-    /* simple insertion sort (n small enough) */
-    for (int i = 1; i < n; ++i) {
-        int key = tmp[i];
-        int j = i - 1;
-        while (j >= 0 && student_heap.items[tmp[j]].student.jee_rank > student_heap.items[key].student.jee_rank) {
-            tmp[j + 1] = tmp[j];
-            j--;
-        }
-        tmp[j + 1] = key;
-    }
     int fill = (n < max_out) ? n : max_out;
-    for (int i = 0; i < fill; ++i) out_indices[i] = tmp[i];
-    free(tmp);
+    for (int i = 0; i < fill; ++i) out_indices[i] = i;
     return fill;
 }
 
-/* Free dynamically allocated Offer arrays inside heap items */
+/* Free per-student offers */
 void heap_free_all_offers(void) {
     for (int i = 0; i < student_heap.size; ++i) {
         if (student_heap.items[i].offers) {
@@ -115,18 +74,19 @@ void heap_free_all_offers(void) {
     }
 }
 
-/* ---------- ELIGIBILITY & OFFERS ---------- */
+/* ----------------------------
+   Eligibility check (unchanged)
+   ---------------------------- */
 
 int is_eligible(const Student *s, const CollegeRow *r) {
     if (!r || !s) return 0;
     if (s->percentage12 < 75.0) return 0;
-    /* treat Opening_R and Closing_R as inclusive range */
+
     int low = r->Opening_R <= r->Closing_R ? r->Opening_R : r->Closing_R;
     int high = r->Opening_R <= r->Closing_R ? r->Closing_R : r->Opening_R;
     if (low == 0 && high == 0) return 0;
     if (s->jee_rank < low || s->jee_rank > high) return 0;
 
-    /* seat type checks: OPEN or matching reservation or gender */
     char seat[MAX_STR]; char quota[MAX_STR];
     strncpy(seat, r->Seat_Type, sizeof(seat)-1); seat[sizeof(seat)-1]=0;
     strncpy(quota, s->reservation, sizeof(quota)-1); quota[sizeof(quota)-1]=0;
@@ -142,38 +102,99 @@ int is_eligible(const Student *s, const CollegeRow *r) {
     return 0;
 }
 
-/* Build offers: returns dynamically allocated Offer array (caller must free).
-   Returns NULL and *out_offers=0 if none found. */
+/* --------------------------------------------
+   build_offers(): collects eligible colleges then
+   returns an array of offers sorted by Closing_R
+   (min-heap used internally to produce sorted list)
+   -------------------------------------------- */
+
 Offer* build_offers(const Student *s, CollegeRow *rows, int nrows, int *out_offers) {
     if (!s || !rows || nrows <= 0) { *out_offers = 0; return NULL; }
-    Offer *buf = malloc(sizeof(Offer) * nrows);
+
+    /* temp storage for eligible offers (unsorted) */
+    Offer *temp = malloc(sizeof(Offer) * nrows);
+    if (!temp) { *out_offers = 0; return NULL; }
     int c = 0;
+
     for (int i = 0; i < nrows; ++i) {
         if (rows[i].Seats_left <= 0) continue;
         if (is_eligible(s, &rows[i])) {
-            buf[c].idx = i;
-            buf[c].row = rows[i];
-            buf[c].status = OFFER_PENDING;
+            temp[c].idx = i;
+            temp[c].row = rows[i];
+            temp[c].status = OFFER_PENDING;
             c++;
         }
     }
-    if (c == 0) { free(buf); *out_offers = 0; return NULL; }
-    /* sort by Opening_R ascending (better opening rank earlier) */
-    for (int i=0;i<c-1;i++)
-        for (int j=i+1;j<c;j++)
-            if (buf[i].row.Opening_R > buf[j].row.Opening_R) {
-                Offer tmp = buf[i]; buf[i]=buf[j]; buf[j]=tmp;
-            }
-    *out_offers = c;
-    return buf;
+
+    if (c == 0) { free(temp); *out_offers = 0; return NULL; }
+
+    /* Build a min-heap of Offers using Closing_R as key.
+       We'll push temp[0..c-1] into heap_arr and then pop them to produce sorted array.
+    */
+    Offer *heap_arr = malloc(sizeof(Offer) * c);
+    if (!heap_arr) { free(temp); *out_offers = 0; return NULL; }
+    int heap_n = 0;
+
+    auto void heap_push(const Offer *val) {
+        int i = heap_n++;
+        heap_arr[i] = *val;
+        /* sift up */
+        while (i > 0) {
+            int p = (i - 1) / 2;
+            if (heap_arr[p].row.Closing_R <= heap_arr[i].row.Closing_R) break;
+            Offer t = heap_arr[p]; heap_arr[p] = heap_arr[i]; heap_arr[i] = t;
+            i = p;
+        }
+    }
+
+    auto void heapify_down_from(int idx) {
+        int i = idx;
+        while (1) {
+            int l = 2*i + 1;
+            int r = 2*i + 2;
+            int smallest = i;
+            if (l < heap_n && heap_arr[l].row.Closing_R < heap_arr[smallest].row.Closing_R) smallest = l;
+            if (r < heap_n && heap_arr[r].row.Closing_R < heap_arr[smallest].row.Closing_R) smallest = r;
+            if (smallest == i) break;
+            Offer t = heap_arr[i]; heap_arr[i] = heap_arr[smallest]; heap_arr[smallest] = t;
+            i = smallest;
+        }
+    }
+
+    auto Offer heap_pop(void) {
+        Offer out = heap_arr[0];
+        heap_n--;
+        if (heap_n > 0) {
+            heap_arr[0] = heap_arr[heap_n];
+            heapify_down_from(0);
+        }
+        return out;
+    }
+
+    /* push all */
+    for (int i = 0; i < c; ++i) heap_push(&temp[i]);
+
+    /* allocate final buffer and pop heap to get sorted offers (best = lowest Closing_R) */
+    Offer *outbuf = malloc(sizeof(Offer) * c);
+    if (!outbuf) { free(temp); free(heap_arr); *out_offers = 0; return NULL; }
+    int outc = 0;
+    while (heap_n > 0) {
+        outbuf[outc++] = heap_pop();
+    }
+
+    free(temp);
+    free(heap_arr);
+    *out_offers = outc;
+    return outbuf;
 }
 
-/* ---------- AUTH (simple file-based) ---------- */
+/* -----------------------
+   User signup / login
+   ----------------------- */
 
-/* Sign up with given name, aadhaar, password */
 int user_signup(const char *users_txt, const char *name, const char *aadhaar, const char *password) {
     if (!users_txt || !name || !aadhaar || !password) return 0;
-    /* first check existence */
+
     FILE *f = fopen(users_txt, "r");
     char line[512];
     if (f) {
@@ -192,7 +213,7 @@ int user_signup(const char *users_txt, const char *name, const char *aadhaar, co
     return 1;
 }
 
-/* Login returns 1 if correct */
+
 int user_login(const char *users_txt, const char *aadhaar, const char *password) {
     if (!users_txt || !aadhaar || !password) return 0;
     FILE *f = fopen(users_txt, "r");
