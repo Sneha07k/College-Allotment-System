@@ -1,7 +1,4 @@
-/*
-  GTK3 GUI front-end. Uses the heap and functions from allocator.c / input.c
-  Edit the paths below to match your environment.
-*/
+
 #include <ctype.h>
 #include <gtk/gtk.h>
 #include <stdio.h>
@@ -9,17 +6,17 @@
 #include <string.h>
 #include "common.h"
 
-/* Update these paths to your CSV / allocation / users file locations */
+
 static const char *CSV_PATH = "C:\\Users\\sneha\\OneDrive\\Desktop\\csas\\colleges.csv";
 static const char *ALLOC_PATH = "C:\\Users\\sneha\\OneDrive\\Desktop\\csas\\allocations.txt";
 static const char *USERS_PATH = "C:\\Users\\sneha\\OneDrive\\Desktop\\csas\\users.csv";
 
-/* GTK globals */
+
 static GtkWidget *main_window = NULL;
 static GtkWidget *tree_students = NULL;
 static GtkListStore *student_store = NULL;
 
-/* Helper trim */
+
 static void trim_local(char *s) {
     char *p = s;
     while (*p && isspace((unsigned char)*p)) p++;
@@ -28,7 +25,7 @@ static void trim_local(char *s) {
     while (l > 0 && isspace((unsigned char)s[l-1])) s[--l] = '\0';
 }
 
-/* Build display of heap: we will present students sorted by rank */
+
 static void refresh_student_list() {
     if (!student_store) return;
     gtk_list_store_clear(student_store);
@@ -56,7 +53,7 @@ static void refresh_student_list() {
     }
 }
 
-/* Show message dialog */
+
 static void show_message(GtkWindow *parent, const char *title, const char *msg) {
     GtkWidget *d = gtk_message_dialog_new(parent,
                                          GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
@@ -68,7 +65,7 @@ static void show_message(GtkWindow *parent, const char *title, const char *msg) 
     gtk_widget_destroy(d);
 }
 
-/* Add student dialog */
+
 static void on_add_student(GtkButton *btn, gpointer user_data) {
     (void)btn;
     GtkWindow *parent = GTK_WINDOW(user_data);
@@ -120,7 +117,7 @@ static void on_add_student(GtkButton *btn, gpointer user_data) {
     gtk_widget_destroy(dlg);
 }
 
-/* Allocate / Freeze: operate on currently selected student in list */
+
 static void on_allocate_clicked(GtkButton *btn, gpointer user_data) {
     (void)btn;
     GtkWindow *parent = GTK_WINDOW(user_data);
@@ -146,7 +143,7 @@ static void on_allocate_clicked(GtkButton *btn, gpointer user_data) {
         return;
     }
 
-    /* Build dialog with radio buttons for offers */
+
     GtkWidget *dlg = gtk_dialog_new_with_buttons("Select Offer to Freeze", parent,
                                                  GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
                                                  "_Cancel", GTK_RESPONSE_CANCEL,
@@ -181,17 +178,16 @@ static void on_allocate_clicked(GtkButton *btn, gpointer user_data) {
                 show_message(parent, "Unavailable", "Selected seat not available.");
             } else {
                 o->status = OFFER_FROZEN;
-                /* decrement in master college_data (use o->idx) */
+
                 int cidx = o->idx;
                 if (cidx >= 0 && cidx < college_count) {
                     if (college_data[cidx].Seats_left > 0) college_data[cidx].Seats_left--;
                     if (college_data[cidx].Seats_left == 0) {
-                        /* remove row by shifting */
+
                         for (int k=cidx;k<college_count-1;k++) college_data[k]=college_data[k+1];
                         college_count--;
-                        /* NOTE: offers inside heap keep a snapshot; for full correctness you'd rebuild offers for all students */
                     }
-                    /* persist */
+
                     write_college_csv(CSV_PATH, college_data, college_count);
                 }
                 append_allocation_txt(ALLOC_PATH, (current_user_aadhaar[0]?current_user_aadhaar:h->student.aadhaar), h->student.name, o);
@@ -203,7 +199,7 @@ static void on_allocate_clicked(GtkButton *btn, gpointer user_data) {
     gtk_widget_destroy(dlg);
 }
 
-/* View allocations dialog */
+
 static void on_view_allocations(GtkButton *btn, gpointer user_data) {
     (void)btn;
     GtkWindow *parent = GTK_WINDOW(user_data);
@@ -252,7 +248,7 @@ static void on_view_allocations(GtkButton *btn, gpointer user_data) {
     gtk_widget_destroy(dlg);
 }
 
-/* Authentication dialog: uses user_login/user_signup */
+
 static int run_auth_dialog(GtkWindow *parent) {
     GtkWidget *dlg = gtk_dialog_new_with_buttons("Login / Signup", parent,
                                                  GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
@@ -278,7 +274,7 @@ static int run_auth_dialog(GtkWindow *parent) {
     gtk_grid_attach(GTK_GRID(grid), btn_login, 0, 2, 1, 1);
     gtk_grid_attach(GTK_GRID(grid), btn_signup, 1, 2, 1, 1);
 
-    /* connect signals to hide dialog when clicked, so we can read entries */
+    
     g_signal_connect_swapped(btn_login, "clicked", G_CALLBACK(gtk_widget_hide), dlg);
     g_signal_connect_swapped(btn_signup, "clicked", G_CALLBACK(gtk_widget_hide), dlg);
 
@@ -292,7 +288,7 @@ static int run_auth_dialog(GtkWindow *parent) {
             strncpy(current_user_aadhaar, aad, sizeof(current_user_aadhaar)-1);
             ok = 1;
         } else {
-            /* signup flow: ask name */
+
             GtkWidget *sd = gtk_dialog_new_with_buttons("Signup - Enter Name", parent,
                                                         GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
                                                         "_Cancel", GTK_RESPONSE_CANCEL,
@@ -320,33 +316,30 @@ static int run_auth_dialog(GtkWindow *parent) {
     return ok;
 }
 
-/* Build UI and main */
+
 int main(int argc, char **argv) {
     gtk_init(&argc, &argv);
 
-    /* load college data */
     college_data = read_college_csv(CSV_PATH, &college_count);
     if (!college_data) {
         fprintf(stderr, "Failed to read %s\n", CSV_PATH);
         return 1;
     }
 
-    /* init heap */
+
     heap_init();
 
-    /* build main window */
     main_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_default_size(GTK_WINDOW(main_window), 900, 600);
     gtk_window_set_title(GTK_WINDOW(main_window), "College Seat Allocation");
     g_signal_connect(main_window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
 
-    /* auth before proceeding */
+
     if (!run_auth_dialog(GTK_WINDOW(main_window))) {
         fprintf(stderr, "Auth failed\n");
         return 1;
     }
 
-    /* left: student list, right : controls */
     GtkWidget *hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     GtkWidget *vleft = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
     GtkWidget *vright = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
@@ -354,7 +347,7 @@ int main(int argc, char **argv) {
     gtk_box_pack_start(GTK_BOX(hbox), vleft, TRUE, TRUE, 6);
     gtk_box_pack_start(GTK_BOX(hbox), vright, FALSE, FALSE, 6);
 
-    /* student list */
+
     student_store = gtk_list_store_new(4, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING);
     tree_students = gtk_tree_view_new_with_model(GTK_TREE_MODEL(student_store));
     GtkCellRenderer *renderer;
@@ -370,7 +363,7 @@ int main(int argc, char **argv) {
     gtk_container_add(GTK_CONTAINER(scrolled), tree_students);
     gtk_box_pack_start(GTK_BOX(vleft), scrolled, TRUE, TRUE, 0);
 
-    /* controls */
+
     GtkWidget *btn_add = gtk_button_new_with_label("Add Student");
     GtkWidget *btn_alloc = gtk_button_new_with_label("Allocate / Freeze Offer");
     GtkWidget *btn_view = gtk_button_new_with_label("View My Allocations");
@@ -387,7 +380,7 @@ int main(int argc, char **argv) {
     gtk_widget_show_all(main_window);
     gtk_main();
 
-    /* cleanup */
+
     heap_free_all_offers();
     if (college_data) free(college_data);
     return 0;
