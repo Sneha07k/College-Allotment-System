@@ -4,7 +4,6 @@
 #include <string.h>
 #include <ctype.h>
 
-/* Helper trim */
 static void trim_inplace(char *s) {
     char *p = s;
     while (*p && isspace((unsigned char)*p)) p++;
@@ -13,9 +12,7 @@ static void trim_inplace(char *s) {
     while (l > 0 && isspace((unsigned char)s[l-1])) s[--l] = '\0';
 }
 
-/* Read CSV with header line. We expect columns at least:
-   Institute,Quota,Gender,Year,Academic_Program_Name,Closing_Rank,Opening_Rank,Seat_Type,Seats_left
-   This read is permissive (simple CSV parse using strtok on commas). */
+
 CollegeRow* read_college_csv(const char *path, int *out_count) {
     *out_count = 0;
     FILE *f = fopen(path, "r");
@@ -24,16 +21,18 @@ CollegeRow* read_college_csv(const char *path, int *out_count) {
         return NULL;
     }
     char line[8192];
-    /* read header */
+
+    /* read and ignore header */
     if (!fgets(line, sizeof(line), f)) { fclose(f); return NULL; }
 
     int cap = 256;
     CollegeRow *rows = malloc(sizeof(CollegeRow) * cap);
+    if (!rows) { fclose(f); return NULL; }
     int rc = 0;
 
     while (fgets(line, sizeof(line), f)) {
         if (strlen(line) <= 1) continue;
-        /* split by comma into up to 32 cells */
+
         char *cells[32]; int cc = 0;
         char *p = strtok(line, ",\n\r");
         while (p && cc < 32) { trim_inplace(p); cells[cc++] = p; p = strtok(NULL, ",\n\r"); }
@@ -47,7 +46,12 @@ CollegeRow* read_college_csv(const char *path, int *out_count) {
         if (cc > 6) r.Opening_R = atoi(cells[6]);
         if (cc > 7) strncpy(r.Seat_Type, cells[7], MAX_STR-1);
         if (cc > 8) r.Seats_left = atoi(cells[8]);
-        if (rc >= cap) { cap *= 2; rows = realloc(rows, sizeof(CollegeRow) * cap); }
+        if (rc >= cap) {
+            cap *= 2;
+            CollegeRow *tmp = realloc(rows, sizeof(CollegeRow) * cap);
+            if (!tmp) { free(rows); fclose(f); return NULL; }
+            rows = tmp;
+        }
         rows[rc++] = r;
     }
     fclose(f);
@@ -55,7 +59,7 @@ CollegeRow* read_college_csv(const char *path, int *out_count) {
     return rows;
 }
 
-/* Write CSV header and all rows (overwrites) */
+
 int write_college_csv(const char *path, CollegeRow *rows, int count) {
     FILE *f = fopen(path, "w");
     if (!f) return 0;
@@ -70,7 +74,7 @@ int write_college_csv(const char *path, CollegeRow *rows, int count) {
     return 1;
 }
 
-/* Append allocation record in human-readable block format (same as original console format) */
+
 int append_allocation_txt(const char *path, const char *aadhaar, const char *student_name, const Offer *o) {
     FILE *f = fopen(path, "a");
     if (!f) return 0;
